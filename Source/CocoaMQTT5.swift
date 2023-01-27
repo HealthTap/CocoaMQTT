@@ -132,7 +132,7 @@ protocol CocoaMQTT5Client {
 
 /// MQTT Client
 ///
-/// - Note: GCDAsyncSocket need delegate to extend NSObject
+/// - Note: MGCDAsyncSocket need delegate to extend NSObject
 public class CocoaMQTT5: NSObject, CocoaMQTT5Client {
 
     public weak var delegate: CocoaMQTT5Delegate?
@@ -411,12 +411,10 @@ public class CocoaMQTT5: NSObject, CocoaMQTT5Client {
     ///         disconnect expectedly
     public func disconnect() {
         internal_disconnect()
-        is_internal_disconnected = false
     }
 
     public func disconnect(reasonCode : CocoaMQTTDISCONNECTReasonCode,userProperties : [String: String] ) {
         internal_disconnect_withProperties(reasonCode: reasonCode,userProperties: userProperties)
-        is_internal_disconnected = false
     }
 
     /// Disconnect unexpectedly
@@ -566,17 +564,21 @@ extension CocoaMQTT5: CocoaMQTTDeliverProtocol {
     func deliver(_ deliver: CocoaMQTTDeliver, wantToSend frame: Frame) {
         if let publish = frame as? FramePublish {
             let msgid = publish.msgid
-            guard let message = sendingMessages[msgid] else {
-                printError("Want send \(frame), but not found in CocoaMQTT5 cache")
-                return
+            var message: CocoaMQTT5Message? = nil
+                        
+            if let sendingMessage = sendingMessages[msgid] {
+                message = sendingMessage
+                //printError("Want send \(frame), but not found in CocoaMQTT cache")
+            } else {
+                message = CocoaMQTT5Message(topic: publish.topic, payload: publish.payload())
             }
-
+            
             send(publish, tag: Int(msgid))
-
-
-            self.delegate?.mqtt5(self, didPublishMessage: message, id: msgid)
-            self.didPublishMessage(self, message, msgid)
-
+            
+            if let message = message {
+                self.delegate?.mqtt5(self, didPublishMessage: message, id: msgid)
+                self.didPublishMessage(self, message, msgid)
+            }
         } else if let pubrel = frame as? FramePubRel {
             // -- Send PUBREL
             send(pubrel, tag: Int(pubrel.msgid))
@@ -612,7 +614,7 @@ extension CocoaMQTT5: CocoaMQTTSocketDelegate {
     }
 
     // ?
-    public func socketDidSecure(_ sock: GCDAsyncSocket) {
+    public func socketDidSecure(_ sock: MGCDAsyncSocket) {
         printDebug("Socket has successfully completed SSL/TLS negotiation")
         sendConnectFrame()
     }
@@ -644,7 +646,7 @@ extension CocoaMQTT5: CocoaMQTTSocketDelegate {
         delegate?.mqtt5DidDisconnect(self, withError: err)
         didDisconnect(self, err)
 
-        guard is_internal_disconnected else {
+        guard !is_internal_disconnected else {
             return
         }
 
